@@ -1,0 +1,296 @@
+{
+  "updatedAt": "2026-11-20T18:57:43.197Z",
+  "createdAt": "2026-11-20T18:57:43.197Z",
+  "id": "dailyDigest000001",
+  "name": "daily-pipeline-digest",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "n33853023",
+      "name": "Schedule 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        -80
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "n35903557",
+      "name": "Manual run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        80
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "n59812240",
+      "name": "Get deal pipelines",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.hubapi.com/crm/v3/pipelines/deals",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "hubcred0000000001",
+          "name": "HubSpot (read-only)"
+        }
+      }
+    },
+    {
+      "id": "n66636800",
+      "name": "Get deals",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.hubapi.com/crm/v3/objects/deals?limit=100&properties=dealstage",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "pagination": {
+            "pagination": {
+              "paginationMode": "responseContainsNextURL",
+              "nextURL": "={{ $response.body.paging?.next?.link }}",
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.paging?.next?.link }}",
+              "limitPagesFetched": true,
+              "maxRequests": 20
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "hubcred0000000001",
+          "name": "HubSpot (read-only)"
+        }
+      }
+    },
+    {
+      "id": "n83353919",
+      "name": "Aggregate counts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const pipes = $('Get deal pipelines').first().json.results || [];\nconst label = {}; const order = [];\nfor (const p of pipes) for (const s of p.stages) { label[s.id] = p.label + ' / ' + s.label; order.push(label[s.id]); }\nconst counts = {}; let total = 0;\nfor (const page of $('Get deals').all()) for (const d of (page.json.results || [])) {\n  const k = label[d.properties?.dealstage] || 'unknown stage';\n  counts[k] = (counts[k] || 0) + 1; total++;\n}\nconst stages = [...order, 'unknown stage'].filter(k => counts[k]).map(k => ({ stage: k, deals: counts[k] }));\nconst date = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Vancouver' });\nconst prompt = 'Deal counts by pipeline stage as of ' + date + ' (total ' + total + '):\\n' + stages.map(s => s.stage + ': ' + s.deals).join('\\n') +\n  '\\nWrite exactly five short lines summarising the state of the pipeline for the owner. Counts only; no preamble.';\nreturn [{ json: { date, total, stages, prompt } }];"
+      }
+    },
+    {
+      "id": "n41266603",
+      "name": "Write summary",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}"
+      }
+    },
+    {
+      "id": "n54313242",
+      "name": "Gemini (free) chat model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        960,
+        180
+      ],
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "credentials": {
+        "googlePalmApi": {
+          "id": "gemcred0000000001",
+          "name": "Gemini (free)"
+        }
+      }
+    },
+    {
+      "id": "n68194846",
+      "name": "Build markdown",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const a = $('Aggregate counts').first().json;\nconst summary = String($input.first().json.text ?? '').trim();\nconst text = '# Pipeline digest ' + a.date + '\\n\\nTotal deals: ' + a.total + '\\n\\n| Stage | Deals |\\n| --- | --- |\\n' +\n  a.stages.map(s => '| ' + s.stage + ' | ' + s.deals + ' |').join('\\n') + '\\n\\n## Summary\\n\\n' + summary + '\\n';\nconst b = await this.helpers.prepareBinaryData(Buffer.from(text), 'digest.md');\nreturn [{ json: { file: 'pipeline-digest-' + a.date + '.md' }, binary: { data: b } }];"
+      }
+    },
+    {
+      "id": "n97033430",
+      "name": "Write digest file",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/home/node/.n8n-files/digests/{{ $json.file }}",
+        "dataPropertyName": "data",
+        "options": {
+          "append": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule 07:00": {
+      "main": [
+        [
+          {
+            "node": "Get deal pipelines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual run": {
+      "main": [
+        [
+          {
+            "node": "Get deal pipelines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get deal pipelines": {
+      "main": [
+        [
+          {
+            "node": "Get deals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get deals": {
+      "main": [
+        [
+          {
+            "node": "Aggregate counts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate counts": {
+      "main": [
+        [
+          {
+            "node": "Write summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini (free) chat model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Write summary",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write summary": {
+      "main": [
+        [
+          {
+            "node": "Build markdown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build markdown": {
+      "main": [
+        [
+          {
+            "node": "Write digest file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "errHandler000001"
+  },
+  "staticData": {
+    "node:Schedule 07:00": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  },
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": null,
+  "versionId": "83dc2ec9-f8e0-4a3c-9003-bfa989e75f0d",
+  "activeVersionId": "83dc2ec9-f8e0-4a3c-9003-bfa989e75f0d",
+  "versionCounter": 1,
+  "triggerCount": 1,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}
