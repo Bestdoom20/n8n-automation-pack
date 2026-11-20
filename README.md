@@ -6,20 +6,16 @@ n8n 2.48.7 runs in Docker, bound to `127.0.0.1:5678` only. Nothing is exposed to
 
 ## Status
 
-Not everything has run yet. The language-model steps need a Gemini API key, which is entered by hand in the n8n credential screen and is never stored in this repo. Until that is done the credential `Gemini (free)` holds a placeholder, and those steps are unverified.
+Everything below was executed on 2026-11-20 against the live Gemini free tier, using invented leads and aggregate CRM counts only. The model is `gemini-3.5-flash-lite`. The Gemini key lives only in n8n's encrypted credential store.
 
-| Part | Status |
-|---|---|
-| Container up, healthy, localhost only | Verified |
-| `error-handler`: forced failure logged | Verified |
-| `lead-intake`: input validation, HTTP 400 | Verified |
-| `agent-with-tools`: input validation, HTTP 400 | Verified |
-| `daily-pipeline-digest`: HubSpot GET and counts aggregation | Verified |
-| `lead-intake`: model scoring, invalid-JSON branch, log write | Waiting on the key |
-| `daily-pipeline-digest`: model summary, markdown file | Waiting on the key |
-| `agent-with-tools`: model calls a tool | Waiting on the key |
+| Workflow | Result | Execution ids (local instance) |
+|---|---|---|
+| `lead-intake` | Validation 400, model scoring (3 leads) and the invalid-JSON fallback all ran | 3, 7, 8, 9 |
+| `daily-pipeline-digest` | HubSpot GETs, aggregation, model summary and markdown file ran | 11, 16 |
+| `agent-with-tools` | Agent called both tools and answered | 14, 15 |
+| `error-handler` | Logged a forced failure and a real tool-configuration failure | 6, 13 |
 
-The workflows are active. Until the key is pasted, a model step will fail and the failure will be written to the error log, which is the intended behaviour.
+The fallback run (invalid JSON) was done on a throwaway copy of `lead-intake` with the model output capped at 20 tokens, so the reply was cut off mid-object. The copy was deleted afterwards, so its execution record is gone; the log line it wrote is shown below.
 
 ## The workflows
 
@@ -83,26 +79,50 @@ $ curl -s -w ' [%{http_code}]' -X POST localhost:5678/webhook/lead-intake -d '{"
 {"error":"invalid input","missing":["title","company","message"]} [400]
 ```
 
-Aggregation, from the real CRM, counts only (100 deals, five stages in use):
+Lead scoring (invented lead, execution 7):
 
 ```
-Studio cycle / Researching            6
-Studio cycle / Connecting            75
-Studio cycle / Champion in            9
-Studio cycle / Warming (replied)      7
-Studio cycle / Decision maker reached 3
+{"fit_tier":"high","reason":"The lead has a clear, manual, high-volume document processing workflow that is an ideal fit for automation.","suggested_next_step":"Schedule a 15-minute discovery call to discuss invoice processing workflows and potential ROI.","model_output_valid":true}
 ```
 
-Error handler, after a throwaway workflow with a Code node that throws was run once (the throwaway was deleted afterwards):
+Two more invented leads carried prompt-injection text in the message field (asking the model to drop the JSON format or to use a made-up tier). The model ignored it both times and returned valid JSON with tier `low`.
+
+Invalid JSON fallback (truncated model output):
+
+```
+{"fit_tier":"unknown","reason":"Model did not return valid JSON; flagged for manual review.","suggested_next_step":"Review this lead by hand.","model_output_valid":false,"raw_model_output":"{\"fit_tier\": \"high\", \"reason\": \"The lead has a"}
+```
+
+Pipeline digest, from the real CRM, counts only (100 deals, five stages in use), execution 16:
+
+```
+| Studio cycle / Researching | 6 |
+| Studio cycle / Connecting | 75 |
+| Studio cycle / Champion in | 9 |
+| Studio cycle / Warming (replied) | 7 |
+| Studio cycle / Decision maker reached | 3 |
+
+Three-quarters of all active deals currently sit in the connecting stage.
+This single phase represents 75 percent of the entire pipeline volume.
+Early research and later decision-maker stages both remain notably thin.
+Momentum is clearly concentrated in early outreach rather than closing.
+Focus next on moving those connected prospects deeper toward decisions.
+```
+
+Agent, execution 15. `tools_called` is `["get_weather","Calculator"]`. The weather call returned open-meteo data for Kelowna and the calculator computed `3.6 * 1.8 + 32 = 38.48`, which the answer repeats.
+
+Error handler. The first line is from a throwaway workflow with a Code node that throws (deleted afterwards). The second is a real failure from the agent, whose first tool node had an invalid name and was fixed.
 
 ```
 {"ts":"2026-11-20T18:59:53.068Z","workflow":"force-failure-test","node":"Deliberate failure","message":"Deliberate failure to prove the error handler [line 1]","executionId":"5"}
+{"ts":"2026-11-20T19:03:12.484Z","workflow":"agent-with-tools","node":"AI Agent","message":"Error in sub-node Weather (open-meteo)","executionId":"12"}
 ```
 
 ## Limits
 
 - Malformed JSON bodies are rejected by n8n itself with HTTP 422 before the workflow starts. The 400 path covers well-formed JSON with missing or empty fields.
-- The Gemini free tier is rate limited and shared with other things on the same key. The lead scorer is not built for volume.
+- The Gemini free tier is rate limited and shared with other things on the same key. The lead scorer is not built for volume, and there is no model fallback wired in. If the primary model is busy the run fails and the error handler logs it.
+- The digest was also started from the command line (`n8n execute`), not only by its schedule. The 07:00 schedule has not fired yet.
 - The digest depends on HubSpot deals having a stage. Deals without one are counted as `unknown stage`.
 - File logs are plain append-only files with no rotation.
 - The container runs plain http on localhost, with `N8N_SECURE_COOKIE=false`. Put it behind TLS before exposing it anywhere.
