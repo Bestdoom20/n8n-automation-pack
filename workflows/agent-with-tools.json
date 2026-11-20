@@ -1,0 +1,320 @@
+{
+  "updatedAt": "2026-11-20T18:57:46.764Z",
+  "createdAt": "2026-11-20T18:57:46.764Z",
+  "id": "agentTools0000001",
+  "name": "agent-with-tools",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "n48433571",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "agent-with-tools-0001"
+    },
+    {
+      "id": "n66104025",
+      "name": "Validate question",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const b = $input.first().json.body;\nconst q = b && typeof b.question === 'string' ? b.question.trim() : '';\nreturn [{ json: { valid: q.length > 0 && q.length <= 1000, question: q.slice(0, 1000) } }];"
+      }
+    },
+    {
+      "id": "n36158178",
+      "name": "Question valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n92379926",
+      "name": "Respond 400",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        660,
+        160
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { error: 'body must be JSON with a non-empty string field: question' } }}",
+        "options": {
+          "responseCode": 400
+        }
+      }
+    },
+    {
+      "id": "n62169113",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        660,
+        -60
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.question }}",
+        "options": {
+          "systemMessage": "You answer questions using tools. Use the weather tool for current weather (give it latitude and longitude of the place) and the calculator for any arithmetic. Do not guess numbers; call a tool.",
+          "returnIntermediateSteps": true,
+          "maxIterations": 5
+        }
+      }
+    },
+    {
+      "id": "n54313242",
+      "name": "Gemini (free) chat model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        600,
+        160
+      ],
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "credentials": {
+        "googlePalmApi": {
+          "id": "gemcred0000000001",
+          "name": "Gemini (free)"
+        }
+      }
+    },
+    {
+      "id": "n52143772",
+      "name": "Calculator",
+      "type": "@n8n/n8n-nodes-langchain.toolCalculator",
+      "typeVersion": 1,
+      "position": [
+        760,
+        160
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "n75554400",
+      "name": "Weather (open-meteo)",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        920,
+        160
+      ],
+      "parameters": {
+        "toolDescription": "Get current weather (temperature in C, wind speed) for a latitude and longitude from the open-meteo public API.",
+        "method": "GET",
+        "url": "https://api.open-meteo.com/v1/forecast",
+        "sendQuery": true,
+        "parametersQuery": {
+          "values": [
+            {
+              "name": "latitude",
+              "valueProvider": "modelRequired"
+            },
+            {
+              "name": "longitude",
+              "valueProvider": "modelRequired"
+            },
+            {
+              "name": "current",
+              "valueProvider": "fieldValue",
+              "value": "temperature_2m,wind_speed_10m"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "n52392398",
+      "name": "Shape answer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        -60
+      ],
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nconst steps = (j.intermediateSteps || []).map(s => ({ tool: s.action?.tool, input: s.action?.toolInput, observation: String(s.observation ?? '').slice(0, 300) }));\nreturn [{ json: { answer: j.output, tools_called: steps.map(s => s.tool), steps } }];"
+      }
+    },
+    {
+      "id": "n69000069",
+      "name": "Respond with answer",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1200,
+        -60
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate question",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate question": {
+      "main": [
+        [
+          {
+            "node": "Question valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Question valid?": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 400",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini (free) chat model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculator": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weather (open-meteo)": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Shape answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape answer": {
+      "main": [
+        [
+          {
+            "node": "Respond with answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "errHandler000001"
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": null,
+  "versionId": "68c61e56-4d59-41e7-a8b6-b103d6e8b2fe",
+  "activeVersionId": "68c61e56-4d59-41e7-a8b6-b103d6e8b2fe",
+  "versionCounter": 1,
+  "triggerCount": 1,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}
