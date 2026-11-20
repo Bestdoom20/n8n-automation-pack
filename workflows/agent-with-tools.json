@@ -117,7 +117,7 @@
         160
       ],
       "parameters": {
-        "modelName": "models/gemini-2.5-flash",
+        "modelName": "models/gemini-3.5-flash-lite",
         "options": {
           "temperature": 0
         }
@@ -142,9 +142,9 @@
     },
     {
       "id": "n75554400",
-      "name": "Weather (open-meteo)",
-      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
-      "typeVersion": 1.1,
+      "name": "get_weather",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
       "position": [
         920,
         160
@@ -154,23 +154,23 @@
         "method": "GET",
         "url": "https://api.open-meteo.com/v1/forecast",
         "sendQuery": true,
-        "parametersQuery": {
-          "values": [
+        "queryParameters": {
+          "parameters": [
             {
               "name": "latitude",
-              "valueProvider": "modelRequired"
+              "value": "={{ $fromAI('latitude', 'Latitude in decimal degrees', 'number') }}"
             },
             {
               "name": "longitude",
-              "valueProvider": "modelRequired"
+              "value": "={{ $fromAI('longitude', 'Longitude in decimal degrees', 'number') }}"
             },
             {
               "name": "current",
-              "valueProvider": "fieldValue",
               "value": "temperature_2m,wind_speed_10m"
             }
           ]
-        }
+        },
+        "options": {}
       }
     },
     {
@@ -265,7 +265,7 @@
         ]
       ]
     },
-    "Weather (open-meteo)": {
+    "get_weather": {
       "ai_tool": [
         [
           {

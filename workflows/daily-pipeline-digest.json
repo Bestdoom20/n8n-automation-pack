@@ -105,7 +105,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const pipes = $('Get deal pipelines').first().json.results || [];\nconst label = {}; const order = [];\nfor (const p of pipes) for (const s of p.stages) { label[s.id] = p.label + ' / ' + s.label; order.push(label[s.id]); }\nconst counts = {}; let total = 0;\nfor (const page of $('Get deals').all()) for (const d of (page.json.results || [])) {\n  const k = label[d.properties?.dealstage] || 'unknown stage';\n  counts[k] = (counts[k] || 0) + 1; total++;\n}\nconst stages = [...order, 'unknown stage'].filter(k => counts[k]).map(k => ({ stage: k, deals: counts[k] }));\nconst date = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Vancouver' });\nconst prompt = 'Deal counts by pipeline stage as of ' + date + ' (total ' + total + '):\\n' + stages.map(s => s.stage + ': ' + s.deals).join('\\n') +\n  '\\nWrite exactly five short lines summarising the state of the pipeline for the owner. Counts only; no preamble.';\nreturn [{ json: { date, total, stages, prompt } }];"
+        "jsCode": "const pipes = $('Get deal pipelines').first().json.results || [];\nconst label = {}; const order = [];\nfor (const p of pipes) for (const s of p.stages) { label[s.id] = p.label + ' / ' + s.label; order.push(label[s.id]); }\nconst counts = {}; let total = 0;\nfor (const page of $('Get deals').all()) for (const d of (page.json.results || [])) {\n  const k = label[d.properties?.dealstage] || 'unknown stage';\n  counts[k] = (counts[k] || 0) + 1; total++;\n}\nconst stages = [...order, 'unknown stage'].filter(k => counts[k]).map(k => ({ stage: k, deals: counts[k] }));\nconst date = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Vancouver' });\nconst prompt = 'Deal counts by pipeline stage as of ' + date + ' (total ' + total + '):\\n' + stages.map(s => s.stage + ': ' + s.deals).join('\\n') +\n  '\\nWrite exactly five short lines of plain-English insight for the owner: where most deals sit and its share of the total, what is thin, and one suggested focus. Do not just repeat the list. No preamble, no names.';\nreturn [{ json: { date, total, stages, prompt } }];"
       }
     },
     {
@@ -132,7 +132,7 @@
         180
       ],
       "parameters": {
-        "modelName": "models/gemini-2.5-flash",
+        "modelName": "models/gemini-3.5-flash-lite",
         "options": {
           "temperature": 0.3
         }
